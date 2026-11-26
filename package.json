@@ -1,0 +1,12 @@
+{
+  "name": "acb-tracker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "ACB and capital gains tracker for Canadian investors. Local-only PWA.",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "dev": "npx wrangler dev",
+    "deploy": "npm test && npx wrangler deploy"
+  }
+}
