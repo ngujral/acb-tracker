@@ -7,13 +7,14 @@ all data stays in the browser (IndexedDB). No backend, no accounts.
 
 - Pooled average-cost ACB per security across all non-registered accounts
 - Buys, sells, reinvested distributions, return of capital (incl. ACB below zero), splits, opening balances
+- US-dollar trades, converted to CAD at the Bank of Canada rate on each settlement date (CRA's stated position)
 - Superficial-loss rule, including re-buys in TFSA/RRSP (loss permanently denied)
 - Sale check before you sell: expected gain/loss, superficial-loss warning, safe re-buy date
 - Questrade activity import (.xlsx export directly, or .csv) with preview and duplicate detection
 - Yearly report laid out like Schedule 3, CSV export, print to PDF
 - Encrypted backup/restore (PBKDF2 + AES-GCM, Web Crypto)
 
-Not yet: USD trades, ETF tax-breakdown import, TD/RBC import, spouse view, options and corporate actions.
+Not yet: ETF tax-breakdown import, TD/RBC import, spouse view, options and corporate actions.
 
 ## Layout
 
@@ -22,12 +23,14 @@ public/            static site served by the Worker
   lib/engine.js    pure ACB engine (no DOM, no storage)
   lib/dates.js     settlement dates (T+1 from 2024-05-27, TSX holidays)
   lib/questrade.js Questrade activity parser
+  lib/fx.js        exchange-rate lookup (weekend/holiday -> prior business day)
   lib/xlsx.js      dependency-free .xlsx reader (DecompressionStream)
   lib/db.js        IndexedDB
   lib/backup.js    encrypted backup
   app.js           UI (hash routes)
 test/              node:test suites, incl. the 15 cases from the requirements doc
-wrangler.jsonc     Cloudflare Worker (static assets)
+worker.js          Worker: serves public/ and /api/fx (Bank of Canada Valet proxy, edge-cached)
+wrangler.jsonc     Cloudflare Worker config
 ```
 
 ## Develop

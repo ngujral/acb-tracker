@@ -170,3 +170,31 @@ test('market holidays', () => {
   assert.equal(defaultSettlementDate('2024-05-24'), '2024-05-28'); // T+2 before the switch
   assert.equal(defaultSettlementDate('2026-11-26'), '2026-11-27');
 });
+
+test('USD buy and sell convert at each settlement-date rate', () => {
+  const securitiesUS = [...securities, { id: 'A', ticker: 'AAPL', exchange: 'US' }];
+  const usd = (type, date, qty, price, comm, fxRate) => ({ ...tx(type, date, { qty: qty * QTY, grossCents: $(qty * price), commissionCents: $(comm) }), securityId: 'A', currency: 'USD', fxRate });
+  const l = computeLedger({ accounts, securities: securitiesUS, transactions: [
+    usd('BUY', '2026-02-02', 10, 150, 5, 1.35),
+    usd('SELL', '2026-06-01', 10, 160, 5, 1.40),
+  ] });
+  const d = l.dispositions[0];
+  assert.equal(d.acbCents, $(2031.75)); // (1500 + 5) x 1.35
+  assert.equal(d.proceedsCents, $(2240));
+  assert.equal(d.outlaysCents, $(7));
+  assert.equal(d.gainCents, $(201.25));
+  assert.equal(d.currency, 'USD');
+  assert.match(d.explanation, /US\$1,600\.00/);
+});
+
+test('USD: currency loss can turn a USD gain into a CAD loss', () => {
+  const securitiesUS = [...securities, { id: 'A', ticker: 'AAPL', exchange: 'US' }];
+  const usd = (type, date, qty, price, fxRate) => ({ ...tx(type, date, { qty: qty * QTY, grossCents: $(qty * price) }), securityId: 'A', currency: 'USD', fxRate });
+  const l = computeLedger({ accounts, securities: securitiesUS, transactions: [usd('BUY', '2026-01-05', 100, 100, 1.45), usd('SELL', '2026-09-01', 100, 105, 1.30)] });
+  assert.equal(l.dispositions[0].gainCents, $(13650 - 14500));
+});
+
+test('USD without a rate is an error', () => {
+  const l = run([{ ...buy('2026-01-05', 1, 100), currency: 'USD' }]);
+  assert.match(l.errors[0].message, /exchange rate/);
+});

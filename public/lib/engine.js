@@ -12,6 +12,9 @@
 //   REINVESTED_DIST / ROC: amountCents (accountId identifies the holding)
 //   TRANSFER_IN: qty, amountCents (ACB carried in)
 //   SPLIT: ratioNum/ratioDen new shares per old share (2-for-1 => 2/1); applies to every account
+//   currency: 'CAD' (default) or e.g. 'USD'; amounts are then in that currency and fxRate
+//   (CAD per 1 unit, Bank of Canada rate on the settlement date) converts them to CAD.
+//   TRANSFER_IN amounts are always CAD.
 //
 // Dates: ordering and superficial-loss windows use the settlement date (the date the
 // acquisition or disposition happens for tax purposes); trade date breaks ties.
@@ -43,6 +46,9 @@ export const fmtQty = (q) => {
   const v = q / QTY;
   return Number.isInteger(v) ? v.toLocaleString('en-CA') : v.toLocaleString('en-CA', { maximumFractionDigits: 6 });
 };
+
+export const fmtCur = (cents, cur = 'CAD') => (cur && cur !== 'CAD' ? `${cur === 'USD' ? 'US' : cur + ' '}${fmtMoney(cents)}` : fmtMoney(cents));
+const isForeign = (t) => !!t.currency && t.currency !== 'CAD' && t.type !== 'TRANSFER_IN' && t.type !== 'SPLIT';
 
 export function groupKeyOf(securities, securityId) {
   const s = securities.find((x) => x.id === securityId);
@@ -116,12 +122,22 @@ export function computeLedger({ accounts, securities, transactions }) {
     for (const e of events) {
       const nonreg = e.type === 'SPLIT' || isNonReg(e.accountId);
       if (!nonreg) continue; // registered holdings only matter for superficial losses
+      const foreign = isForeign(e);
+      const fx = foreign ? Math.round(Number(e.fxRate) * 1e6) : 0;
+      if (foreign && !(fx > 0)) {
+        errors.push({ txId: e.id, message: `${e.currency} transaction on ${dateOf(e)} needs an exchange rate.` });
+        continue;
+      }
+      const cad = (c) => (foreign ? mulDiv(c || 0, fx, 1e6) : (c || 0));
+      const via = (c) => (foreign ? ` (${fmtCur(c || 0, e.currency)} x ${e.fxRate})` : '');
 
       switch (e.type) {
         case 'BUY': {
-          const cost = e.grossCents + (e.commissionCents || 0);
+          const cost = cad(e.grossCents + (e.commissionCents || 0));
           shares += e.qty; acb += cost;
-          push(e, cost, `Bought ${fmtQty(e.qty)} for ${fmtMoney(e.grossCents)} + ${fmtMoney(e.commissionCents || 0)} commission`);
+          push(e, cost, foreign
+            ? `Bought ${fmtQty(e.qty)} for ${fmtCur(e.grossCents, e.currency)} + ${fmtCur(e.commissionCents || 0, e.currency)} commission = ${fmtMoney(cost)} at ${e.fxRate}`
+            : `Bought ${fmtQty(e.qty)} for ${fmtMoney(e.grossCents)} + ${fmtMoney(e.commissionCents || 0)} commission`);
           break;
         }
         case 'TRANSFER_IN': {
@@ -130,14 +146,16 @@ export function computeLedger({ accounts, securities, transactions }) {
           break;
         }
         case 'REINVESTED_DIST': {
-          acb += e.amountCents;
+          const amt = cad(e.amountCents);
+          acb += amt;
           if (shares === 0) warnings.push({ txId: e.id, message: 'Reinvested distribution recorded while holding no shares.' });
-          push(e, e.amountCents, `Reinvested distribution ${fmtMoney(e.amountCents)} added to ACB`);
+          push(e, amt, `Reinvested distribution ${fmtMoney(amt)}${via(e.amountCents)} added to ACB`);
           break;
         }
         case 'ROC': {
-          acb -= e.amountCents;
-          let note = `Return of capital ${fmtMoney(e.amountCents)} subtracted from ACB`;
+          const amt = cad(e.amountCents);
+          acb -= amt;
+          let note = `Return of capital ${fmtMoney(amt)}${via(e.amountCents)} subtracted from ACB`;
           if (shares === 0) warnings.push({ txId: e.id, message: 'Return of capital recorded while holding no shares.' });
           if (acb < 0) {
             const gain = -acb;
@@ -150,7 +168,7 @@ export function computeLedger({ accounts, securities, transactions }) {
             note += `; ACB below zero by ${fmtMoney(gain)}: reported as a gain, ACB reset to $0.00`;
             acb = 0;
           }
-          push(e, -e.amountCents, note);
+          push(e, -amt, note);
           break;
         }
         case 'SPLIT': {
@@ -162,8 +180,8 @@ export function computeLedger({ accounts, securities, transactions }) {
         case 'SELL': {
           if (e.qty > shares) { push(e, 0, 'Skipped: sells more shares than held'); break; }
           const acbSold = e.qty === shares ? acb : mulDiv(acb, e.qty, shares);
-          const proceeds = e.grossCents;
-          const outlays = e.commissionCents || 0;
+          const proceeds = cad(e.grossCents);
+          const outlays = cad(e.commissionCents || 0);
           let gain = proceeds - outlays - acbSold;
           shares -= e.qty; acb -= acbSold;
           const lossBefore = gain;
@@ -195,13 +213,15 @@ export function computeLedger({ accounts, securities, transactions }) {
             }
           }
 
-          const explanation = `Proceeds ${fmtMoney(proceeds)} - outlays ${fmtMoney(outlays)} - ACB of shares sold ${fmtMoney(acbSold)}` +
+          const fxText = foreign ? `${fmtCur(e.grossCents, e.currency)} proceeds and ${fmtCur(e.commissionCents || 0, e.currency)} commission converted at ${e.fxRate} (Bank of Canada, ${dateOf(e)}). ` : '';
+          const explanation = fxText + `Proceeds ${fmtMoney(proceeds)} - outlays ${fmtMoney(outlays)} - ACB of shares sold ${fmtMoney(acbSold)}` +
             ` (${fmtQty(e.qty)} / ${fmtQty(e.qty + shares)} of pool ACB) = ${fmtMoney(lossBefore)}.` + superficialNote;
           dispositions.push({
             kind: 'SALE', txId: e.id, groupKey: key, securityId: e.securityId, accountId: e.accountId,
             date: dateOf(e), tradeDate: e.tradeDate, year: yearOf(dateOf(e)), qty: e.qty,
             proceedsCents: proceeds, outlaysCents: outlays, acbCents: acbSold,
             gainBeforeCents: lossBefore, gainCents: gain, deniedCents: denied, lostCents: lost, explanation,
+            currency: e.currency || 'CAD', fxRate: foreign ? e.fxRate : 1, proceedsForeignCents: foreign ? e.grossCents : null,
           });
           push(e, -acbSold + (denied - lost), `Sold ${fmtQty(e.qty)}: gain ${fmtMoney(gain)}${denied ? ` (after ${fmtMoney(denied)} superficial loss denied)` : ''}`);
           break;
@@ -242,8 +262,8 @@ export function yearReport(ledger, year, inclusionRate = 0.5) {
  * Check a planned sale before placing it. Adds a hypothetical SELL and runs the engine.
  * Returns the expected disposition, buys in the past 30 days, and the first safe re-buy date.
  */
-export function checkSale(data, { accountId, securityId, qty, grossCents, commissionCents = 0, tradeDate, settleDate }) {
-  const probe = { id: '__probe__', seq: Number.MAX_SAFE_INTEGER, accountId, securityId, type: 'SELL', tradeDate, settleDate, qty, grossCents, commissionCents };
+export function checkSale(data, { accountId, securityId, qty, grossCents, commissionCents = 0, tradeDate, settleDate, currency = 'CAD', fxRate }) {
+  const probe = { id: '__probe__', seq: Number.MAX_SAFE_INTEGER, accountId, securityId, type: 'SELL', tradeDate, settleDate, qty, grossCents, commissionCents, currency, fxRate };
   const ledger = computeLedger({ ...data, transactions: [...data.transactions, probe] });
   const error = ledger.errors.find((x) => x.txId === '__probe__');
   const disposition = ledger.dispositions.find((d) => d.txId === '__probe__');

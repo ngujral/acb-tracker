@@ -27,8 +27,10 @@ test('parses trades, DRIP, and skips the rest with reasons', () => {
   assert.equal(dis.status, 'skipped');
   assert.equal(rei.type, 'BUY');
   assert.equal(rei.grossCents, 3120);
-  assert.equal(usd.status, 'skipped');
-  assert.match(usd.reason, /USD/);
+  assert.equal(usd.status, 'new');
+  assert.equal(usd.currency, 'USD');
+  assert.equal(usd.exchange, 'US');
+  assert.equal(usd.grossCents, 200000);
   assert.equal(tfsa.accountType, 'TFSA');
   assert.equal(dep.status, 'skipped');
 });

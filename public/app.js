@@ -1,4 +1,5 @@
-import { computeLedger, yearReport, checkSale, groupKeyOf, fmtMoney, fmtQty, QTY, REGISTERED } from './lib/engine.js';
+import { computeLedger, yearReport, checkSale, groupKeyOf, fmtMoney, fmtCur, fmtQty, QTY, REGISTERED } from './lib/engine.js';
+import { fillRates, rateOn } from './lib/fx.js';
 import { defaultSettlementDate, today, yearOf } from './lib/dates.js';
 import { loadAll, put, putMany, del, setSetting, replaceAll, uid } from './lib/db.js';
 import { parseQuestrade, parseQuestradeRows, markDuplicates } from './lib/questrade.js';
@@ -46,6 +47,12 @@ const groupName = (key) => {
   return members.map((s) => s.ticker).join(' / ') || '?';
 };
 const groupMembers = (key) => state.data.securities.filter((s) => (s.identicalGroupId || s.id) === key);
+const secCurrency = (securityId) => {
+  const txs = state.data.transactions.filter((t) => t.securityId === securityId && (t.type === 'BUY' || t.type === 'SELL'));
+  const last = txs.sort((a, b) => b.tradeDate.localeCompare(a.tradeDate))[0];
+  return last?.currency || (sec(securityId)?.exchange === 'US' ? 'USD' : 'CAD');
+};
+const groupCurrency = (key) => secCurrency(groupMembers(key)[0]?.id);
 const nonRegAccounts = () => state.data.accounts.filter((a) => a.type === 'NONREG');
 const inclusionRate = (year) => (state.data.settings.inclusionRates || {})[year] ?? 0.5;
 
@@ -116,7 +123,7 @@ function viewHoldings() {
   const totalAcb = held.reduce((s, g) => s + g.acbCents, 0);
   const row = (g) => `
     <a class="holding" href="#/sec/${encodeURIComponent(g.key)}">
-      <div><div class="ticker">${esc(groupName(g.key))}</div><div class="small muted">${fmtQty(g.shares)} shares</div></div>
+      <div><div class="ticker">${esc(groupName(g.key))} ${groupCurrency(g.key) !== 'CAD' ? `<span class="chip">${groupCurrency(g.key)}</span>` : ''}</div><div class="small muted">${fmtQty(g.shares)} shares</div></div>
       <div style="text-align:right"><div class="num"><strong>${fmtMoney(g.acbCents)}</strong></div>
       <div class="small muted num">${g.shares ? `${fmtMoney(Math.round(g.acbCents * QTY / g.shares))} / share` : 'closed'}</div></div>
     </a>`;
@@ -200,15 +207,19 @@ function viewForm(id) {
         <div><label for="tradeDate"><span data-show="BUY SELL">Trade date</span><span data-show="REINVESTED_DIST ROC SPLIT TRANSFER_IN">Date</span></label><input type="date" id="tradeDate" name="tradeDate" value="${t.tradeDate}" required></div>
         <div data-show="BUY SELL"><label for="settleDate">Settlement date <span class="hint">sets the tax year</span></label><input type="date" id="settleDate" name="settleDate" value="${t.settleDate || defaultSettlementDate(t.tradeDate)}"></div>
       </div>
+      <div class="grid2" data-show="BUY SELL REINVESTED_DIST ROC">
+        <div><label for="currency">Currency</label><select id="currency" name="currency">${['CAD', 'USD'].map((c) => `<option ${((t.currency || (s ? secCurrency(s.id) : 'CAD')) === c) ? 'selected' : ''}>${c}</option>`).join('')}</select></div>
+        <div data-fx><label for="fxRate">CAD per USD <span class="hint" id="fxhint">Bank of Canada, settlement date</span></label><input id="fxRate" name="fxRate" inputmode="decimal" value="${t.fxRate || ''}"></div>
+      </div>
       <div class="grid2" data-show="BUY SELL TRANSFER_IN">
         <div><label for="qty">Shares</label><input id="qty" name="qty" inputmode="decimal" value="${qtyToInput(t.qty)}"></div>
-        <div data-show="BUY SELL"><label for="price">Price per share</label><input id="price" name="price" inputmode="decimal" value="${priceGuess ? Number(priceGuess.toFixed(6)) : ''}"></div>
+        <div data-show="BUY SELL"><label for="price">Price per share <span class="hint" data-curlabel></span></label><input id="price" name="price" inputmode="decimal" value="${priceGuess ? Number(priceGuess.toFixed(6)) : ''}"></div>
       </div>
       <div class="grid2" data-show="BUY SELL">
-        <div><label for="gross">Total amount <span class="hint">shares x price, before commission</span></label><input id="gross" name="gross" inputmode="decimal" value="${centsToInput(t.grossCents)}"></div>
+        <div><label for="gross">Total amount <span class="hint">shares x price, before commission <span data-curlabel></span></span></label><input id="gross" name="gross" inputmode="decimal" value="${centsToInput(t.grossCents)}"></div>
         <div><label for="commission">Commission and fees</label><input id="commission" name="commission" inputmode="decimal" value="${centsToInput(t.commissionCents || 0)}"></div>
       </div>
-      <div data-show="REINVESTED_DIST ROC TRANSFER_IN"><label for="amount"><span data-show="TRANSFER_IN">Total ACB of these shares</span><span data-show="REINVESTED_DIST ROC">Amount <span class="hint">from your T3 or the fund's tax breakdown</span></span></label><input id="amount" name="amount" inputmode="decimal" value="${centsToInput(t.amountCents)}"></div>
+      <div data-show="REINVESTED_DIST ROC TRANSFER_IN"><label for="amount"><span data-show="TRANSFER_IN">Total ACB of these shares</span><span data-show="REINVESTED_DIST ROC">Amount <span class="hint">from your T3 or the fund's tax breakdown <span data-curlabel></span></span></span></label><input id="amount" name="amount" inputmode="decimal" value="${centsToInput(t.amountCents)}"></div>
       <div class="grid2" data-show="SPLIT">
         <div><label for="ratioNum">New shares</label><input id="ratioNum" name="ratioNum" inputmode="numeric" value="${t.ratioNum || 2}"></div>
         <div><label for="ratioDen">for every old shares</label><input id="ratioDen" name="ratioDen" inputmode="numeric" value="${t.ratioDen || 1}"></div>
@@ -231,7 +242,28 @@ function viewForm(id) {
   sync();
   let settleTouched = !!editing;
   f.settleDate.addEventListener('input', () => { settleTouched = true; });
-  f.tradeDate.addEventListener('change', () => { if (!settleTouched && f.tradeDate.value) f.settleDate.value = defaultSettlementDate(f.tradeDate.value); });
+  let fxTouched = !!(editing && editing.fxRate);
+  f.fxRate.addEventListener('input', () => { fxTouched = true; });
+  const syncFx = async () => {
+    const usd = f.currency.value !== 'CAD' && ['BUY', 'SELL', 'REINVESTED_DIST', 'ROC'].includes(typeNow());
+    f.querySelector('[data-fx]').hidden = !usd;
+    f.querySelectorAll('[data-curlabel]').forEach((el) => { el.textContent = usd ? `in ${f.currency.value}` : ''; });
+    if (!usd || fxTouched) return;
+    const date = (['BUY', 'SELL'].includes(typeNow()) ? f.settleDate.value : f.tradeDate.value);
+    if (!date) return;
+    const hint = document.getElementById('fxhint');
+    hint.textContent = 'looking up…';
+    try {
+      const r = await rateOn(f.currency.value, date);
+      if (r && !fxTouched) { f.fxRate.value = r.rate; hint.textContent = `Bank of Canada, ${r.date}`; }
+      else if (!r) hint.textContent = 'no rate found; enter it';
+    } catch { hint.textContent = 'offline; enter the rate'; }
+  };
+  f.currency.addEventListener('change', () => { fxTouched = false; syncFx(); });
+  f.addEventListener('change', (e) => { if (e.target.name === 'type') syncFx(); });
+  f.tradeDate.addEventListener('change', () => { if (!settleTouched && f.tradeDate.value) f.settleDate.value = defaultSettlementDate(f.tradeDate.value); if (!fxTouched) syncFx(); });
+  f.settleDate.addEventListener('change', () => { if (!fxTouched) syncFx(); });
+  syncFx();
   const recalcGross = () => { const q = Number(f.qty.value.replace(/,/g, '')), p = Number(f.price.value.replace(/[$,]/g, '')); if (q && p) f.gross.value = (q * p).toFixed(2); };
   f.qty.addEventListener('input', recalcGross);
   f.price.addEventListener('input', recalcGross);
@@ -262,6 +294,11 @@ function viewForm(id) {
       if (!(rec.commissionCents >= 0)) return err('Commission must be zero or more.');
     } else {
       rec.settleDate = rec.tradeDate;
+    }
+    if (['BUY', 'SELL', 'REINVESTED_DIST', 'ROC'].includes(ty) && f.currency.value !== 'CAD') {
+      rec.currency = f.currency.value;
+      rec.fxRate = Number(f.fxRate.value.replace(/,/g, ''));
+      if (!(rec.fxRate > 0)) return err('Enter the exchange rate (CAD per USD), for example 1.3850.');
     }
     if (ty === 'REINVESTED_DIST' || ty === 'ROC' || ty === 'TRANSFER_IN') {
       rec.amountCents = parseMoney(f.amount.value);
@@ -306,17 +343,28 @@ function viewCheck() {
       </div>
       <div class="grid2">
         <div><label for="c-qty">Shares to sell</label><input id="c-qty" inputmode="decimal" required></div>
-        <div><label for="c-price">Expected price</label><input id="c-price" inputmode="decimal" required></div>
+        <div><label for="c-price">Expected price <span class="hint" id="c-cur"></span></label><input id="c-price" inputmode="decimal" required></div>
       </div>
       <div class="grid2">
         <div><label for="c-comm">Commission</label><input id="c-comm" inputmode="decimal" value="0.00"></div>
         <div><label for="c-date">Trade date</label><input type="date" id="c-date" value="${today()}"></div>
       </div>
+      <div id="c-fxrow" hidden><label for="c-fx">CAD per USD <span class="hint" id="c-fxhint">latest Bank of Canada rate</span></label><input id="c-fx" inputmode="decimal"></div>
       <button type="submit">Check</button>
     </form>
     <div id="cres" aria-live="polite"></div>
     ${disclaimer()}`;
   const f = document.getElementById('cf');
+  const syncCur = async () => {
+    const cur = secCurrency(f['c-sec'].value);
+    document.getElementById('c-cur').textContent = cur !== 'CAD' ? `in ${cur}` : '';
+    document.getElementById('c-fxrow').hidden = cur === 'CAD';
+    if (cur === 'CAD' || f['c-fx'].value) return;
+    try { const r = await rateOn(cur, today()); if (r) { f['c-fx'].value = r.rate; document.getElementById('c-fxhint').textContent = `Bank of Canada, ${r.date}`; } }
+    catch { document.getElementById('c-fxhint').textContent = 'offline; enter the rate'; }
+  };
+  f['c-sec'].onchange = () => { f['c-fx'].value = ''; syncCur(); };
+  syncCur();
   f.onsubmit = (ev) => {
     ev.preventDefault();
     const out = document.getElementById('cres');
@@ -325,7 +373,10 @@ function viewCheck() {
     if (!(qty > 0) || !(price >= 0)) { out.innerHTML = '<div class="alert bad">Enter shares and price.</div>'; return; }
     const tradeDate = f['c-date'].value || today();
     const securityId = f['c-sec'].value;
-    const r = checkSale(state.data, { accountId: f['c-acct'].value, securityId, qty, grossCents: Math.round(qty / QTY * price * 100), commissionCents: parseMoney(f['c-comm'].value || '0'), tradeDate, settleDate: defaultSettlementDate(tradeDate) });
+    const currency = secCurrency(securityId);
+    const fxRate = currency === 'CAD' ? undefined : Number(f['c-fx'].value);
+    if (currency !== 'CAD' && !(fxRate > 0)) { out.innerHTML = '<div class="alert bad">Enter the exchange rate.</div>'; return; }
+    const r = checkSale(state.data, { accountId: f['c-acct'].value, securityId, qty, grossCents: Math.round(qty / QTY * price * 100), commissionCents: parseMoney(f['c-comm'].value || '0'), tradeDate, settleDate: defaultSettlementDate(tradeDate), currency, fxRate });
     if (r.error) { out.innerHTML = `<div class="alert bad">${esc(r.error)}</div>`; return; }
     const d = r.disposition;
     const ticker = sec(securityId).ticker;
@@ -333,7 +384,7 @@ function viewCheck() {
     out.innerHTML = `
       <div class="card stack">
         <dl class="kv">
-          <div><dt>Proceeds after commission</dt><dd>${fmtMoney(d.proceedsCents - d.outlaysCents)}</dd></div>
+          <div><dt>Proceeds after commission${d.currency !== 'CAD' ? ' (CAD)' : ''}</dt><dd>${fmtMoney(d.proceedsCents - d.outlaysCents)}</dd></div>
           <div><dt>ACB of shares sold</dt><dd>${fmtMoney(d.acbCents)}</dd></div>
           <div><dt>${isLoss ? 'Capital loss' : 'Capital gain'}</dt><dd>${gainCell(d.gainBeforeCents)}</dd></div>
           <div><dt>${isLoss ? 'Allowable loss' : 'Taxable'} at ${Math.round(inclusionRate(d.year) * 100)}%</dt><dd>${gainCell(Math.round(d.gainCents * inclusionRate(d.year)))}</dd></div>
@@ -385,6 +436,12 @@ function viewImport() {
       } catch (err) { return showErr(err.message || 'Could not read this file.'); }
       if (res.error) { document.getElementById('ierr').innerHTML = `<div class="alert bad">${esc(res.error)}</div>`; return; }
       markDuplicates(res.rows, state.data.transactions.map((t) => t.importHash).filter(Boolean));
+      const foreign = res.rows.filter((r) => r.status === 'new' && r.currency !== 'CAD');
+      if (foreign.length) {
+        document.getElementById('ierr').innerHTML = '<p class="small muted">Getting Bank of Canada exchange rates…</p>';
+        try { await fillRates(foreign); } catch { /* rows without a rate are flagged below */ }
+        for (const r of foreign) if (!r.fxRate) { r.status = 'skipped'; r.reason = 'No exchange rate found. Try again online, or add this trade by hand.'; }
+      }
       state.importRows = res.rows;
       viewImport();
     };
@@ -403,11 +460,11 @@ function viewImport() {
         <div><label>Type</label><select data-accttype="${esc(n)}" ${ex ? 'disabled' : ''}>${Object.entries(ACCT_LABEL).map(([k, v]) => `<option value="${k}" ${(ex ? ex.type : r.accountType) === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div></div>`;
     }).join('')}</div>` : ''}
     <div class="card tight scroll"><table>
-      <thead><tr><th>Status</th><th>Date</th><th>Account</th><th>Type</th><th>Symbol</th><th class="num">Shares</th><th class="num">Amount</th><th class="num">Comm.</th></tr></thead>
+      <thead><tr><th>Status</th><th>Date</th><th>Account</th><th>Type</th><th>Symbol</th><th class="num">Shares</th><th class="num">Amount</th><th class="num">Comm.</th><th class="num">CAD rate</th></tr></thead>
       <tbody>${rows.map((r) => `<tr>
         <td><span class="chip ${r.status === 'new' ? 'new' : r.status === 'skipped' ? 'skipped' : ''}">${r.status}</span>${r.reason ? `<div class="small muted">${esc(r.reason)}</div>` : ''}</td>
         <td>${r.tradeDate || ''}</td><td>${esc(r.accountNumber)}</td><td>${r.type ? TYPE_LABEL[r.type] : esc(r.action)}</td><td>${esc(r.ticker)}</td>
-        <td class="num">${r.qty ? fmtQty(r.qty) : ''}</td><td class="num">${r.grossCents != null ? fmtMoney(r.grossCents) : ''}</td><td class="num">${r.commissionCents != null ? fmtMoney(r.commissionCents) : ''}</td></tr>`).join('')}</tbody>
+        <td class="num">${r.qty ? fmtQty(r.qty) : ''}</td><td class="num">${r.grossCents != null ? fmtCur(r.grossCents, r.currency) : ''}</td><td class="num">${r.commissionCents != null ? fmtCur(r.commissionCents, r.currency) : ''}</td><td class="num">${r.fxRate || ''}</td></tr>`).join('')}</tbody>
     </table></div>
     <div id="ierr" role="alert"></div>
     <div class="row"><button id="doimport" ${nNew ? '' : 'disabled'}>Import ${nNew} transaction${nNew === 1 ? '' : 's'}</button><button class="secondary" id="cancelimp">Choose another file</button></div>`;
@@ -425,11 +482,13 @@ function viewImport() {
     const txs = [];
     let seq = Date.now();
     for (const r of rows.filter((x) => x.status === 'new')) {
-      let s = securities.find((x) => x.ticker === r.ticker);
+      let s = securities.find((x) => x.ticker === r.ticker && (x.exchange || '') === (r.exchange || ''))
+        || securities.find((x) => x.ticker === r.ticker && !x.exchange);
       if (!s) { s = { id: uid(), ticker: r.ticker, exchange: r.exchange, name: r.description }; securities.push(s); newSecs.push(s); }
       const a = accounts.find((x) => x.externalId === r.accountNumber);
       txs.push({ id: uid(), seq: seq++, type: r.type, accountId: a.id, securityId: s.id, tradeDate: r.tradeDate, settleDate: r.settleDate,
-        qty: r.qty, grossCents: r.grossCents, commissionCents: r.commissionCents, source: 'import', importHash: r.importHash, note: r.description });
+        qty: r.qty, grossCents: r.grossCents, commissionCents: r.commissionCents, source: 'import', importHash: r.importHash, note: r.description,
+        ...(r.currency !== 'CAD' ? { currency: r.currency, fxRate: r.fxRate } : {}) });
     }
     const check = computeLedger({ accounts, securities, transactions: [...state.data.transactions, ...txs] });
     if (check.errors.length) {
@@ -455,7 +514,7 @@ function viewReports() {
   const year = Number(query.get('y')) || years[0];
   const rate = inclusionRate(year);
   const rep = yearReport(state.ledger, year, rate);
-  const desc = (d) => d.kind === 'NEGATIVE_ACB' ? `${groupName(d.groupKey)} (ACB below zero)` : `${fmtQty(d.qty)} ${groupName(d.groupKey)}`;
+  const desc = (d) => d.kind === 'NEGATIVE_ACB' ? `${groupName(d.groupKey)} (ACB below zero)` : `${fmtQty(d.qty)} ${groupName(d.groupKey)}${d.currency && d.currency !== 'CAD' ? ` (${d.currency})` : ''}`;
   app.innerHTML = `
     <div class="split noprint"><h1>Capital gains</h1>
       <select id="yr" style="width:auto">${years.map((y) => `<option ${y === year ? 'selected' : ''}>${y}</option>`).join('')}</select></div>
@@ -474,7 +533,7 @@ function viewReports() {
         <td class="date">${d.date}</td><td class="num">${fmtMoney(d.proceedsCents)}</td><td class="num">${fmtMoney(d.acbCents)}</td><td class="num">${fmtMoney(d.outlaysCents)}</td><td>${gainCell(d.gainCents)}</td></tr>`).join('')}</tbody>
       <tfoot><tr><td colspan="2">Total</td><td class="num">${fmtMoney(rep.totals.proceedsCents)}</td><td class="num">${fmtMoney(rep.totals.acbCents)}</td><td class="num">${fmtMoney(rep.totals.outlaysCents)}</td><td>${gainCell(rep.totals.netGainCents)}</td></tr></tfoot>
     </table></div>
-    <p class="small muted">Gain (loss) is after any superficial-loss adjustment. Dispositions are grouped by settlement date.</p>
+    <p class="small muted">All amounts in CAD. US-dollar trades are converted at the Bank of Canada rate on each settlement date. Gain (loss) is after any superficial-loss adjustment.</p>
     <div class="row noprint"><button id="csv">Export CSV</button><button class="secondary" id="printbtn">Print or save as PDF</button></div>`
     : '<div class="card"><p class="muted">No dispositions settled in this year.</p></div>'}
     ${disclaimer()}`;
@@ -484,10 +543,10 @@ function viewReports() {
   const csvBtn = document.getElementById('csv');
   if (csvBtn) csvBtn.onclick = () => {
     const c = (x) => (x / 100).toFixed(2);
-    const lines = [['Description', 'Settlement date', 'Trade date', 'Account', 'Proceeds', 'ACB', 'Outlays', 'Gain (loss)', 'Superficial loss denied', 'Calculation'],
-      ...rep.rows.map((d) => [desc(d), d.date, d.tradeDate || '', acct(d.accountId)?.name || '', c(d.proceedsCents), c(d.acbCents), c(d.outlaysCents), c(d.gainCents), c(d.deniedCents), d.explanation]),
-      ['Total', '', '', '', c(rep.totals.proceedsCents), c(rep.totals.acbCents), c(rep.totals.outlaysCents), c(rep.totals.netGainCents), c(rep.totals.deniedCents), ''],
-      [`Taxable at ${rate * 100}%`, '', '', '', '', '', '', c(rep.totals.taxableCents), '', ''],
+    const lines = [['Description', 'Settlement date', 'Trade date', 'Account', 'Proceeds (CAD)', 'ACB (CAD)', 'Outlays (CAD)', 'Gain (loss) (CAD)', 'Superficial loss denied', 'Currency', 'Proceeds in currency', 'Exchange rate', 'Calculation'],
+      ...rep.rows.map((d) => [desc(d), d.date, d.tradeDate || '', acct(d.accountId)?.name || '', c(d.proceedsCents), c(d.acbCents), c(d.outlaysCents), c(d.gainCents), c(d.deniedCents), d.currency || 'CAD', d.proceedsForeignCents != null ? c(d.proceedsForeignCents) : '', d.fxRate || 1, d.explanation]),
+      ['Total', '', '', '', c(rep.totals.proceedsCents), c(rep.totals.acbCents), c(rep.totals.outlaysCents), c(rep.totals.netGainCents), c(rep.totals.deniedCents), '', '', '', ''],
+      [`Taxable at ${rate * 100}%`, '', '', '', '', '', '', c(rep.totals.taxableCents), '', '', '', '', ''],
       ['For record-keeping only; not tax advice.']];
     download(`capital-gains-${year}.csv`, toCSV(lines), 'text/csv');
   };
@@ -612,6 +671,7 @@ async function loadSample() {
   const x = { id: uid(), ticker: 'XEQT', exchange: 'TSX', name: 'iShares Core Equity ETF Portfolio' };
   const v = { id: uid(), ticker: 'VFV', exchange: 'TSX', name: 'Vanguard S&P 500 Index ETF' };
   const z = { id: uid(), ticker: 'ZAG', exchange: 'TSX', name: 'BMO Aggregate Bond Index ETF' };
+  const us = { id: uid(), ticker: 'AAPL', exchange: 'US', name: 'Apple Inc.' };
   let seq = 1;
   const t = (type, acctObj, s, date, o = {}) => ({ id: uid(), seq: seq++, type, accountId: acctObj ? acctObj.id : null, securityId: s.id, tradeDate: date, settleDate: o.settle || (type === 'BUY' || type === 'SELL' ? defaultSettlementDate(date) : date), commissionCents: 0, source: 'manual', ...o });
   const b = (acctObj, s, date, q, p, c = 0) => t('BUY', acctObj, s, date, { qty: q * QTY, grossCents: Math.round(q * p * 100), commissionCents: Math.round(c * 100) });
@@ -622,9 +682,12 @@ async function loadSample() {
     sl(a1, x, '2025-06-10', 100, 33.80, 4.95),
     b(a1, v, '2025-01-20', 40, 152.00, 4.95), sl(a1, v, '2025-04-08', 40, 128.40, 4.95), b(a3, v, '2025-04-22', 40, 134.10),
     b(a2, z, '2025-02-03', 300, 13.95, 9.99), sl(a2, z, '2026-03-16', 100, 14.40, 9.99),
+    { ...b(a1, us, '2024-08-06', 20, 207.50, 4.95), currency: 'USD', fxRate: 1.3776 },
+    { ...b(a1, us, '2025-03-11', 10, 220.80, 4.95), currency: 'USD', fxRate: 1.4420 },
+    { ...sl(a1, us, '2026-02-10', 15, 268.20, 4.95), currency: 'USD', fxRate: 1.3655 },
   ];
   await putMany('accounts', [a1, a2, a3]);
-  await putMany('securities', [x, v, z]);
+  await putMany('securities', [x, v, z, us]);
   await putMany('transactions', txs);
   await refresh();
 }

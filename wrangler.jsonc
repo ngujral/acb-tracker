@@ -1,9 +1,12 @@
 {
-  // Static-assets Worker, same setup as Retire Timing. Deploy: npm run deploy
+  // Worker serving the static app plus /api/fx (Bank of Canada rates). Deploy: npm run deploy
   "name": "acb-tracker",
+  "main": "worker.js",
   "compatibility_date": "2026-11-01",
   "assets": {
     "directory": "./public",
-    "not_found_handling": "single-page-application"
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
   }
 }

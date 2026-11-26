@@ -117,7 +117,7 @@ export function parseQuestradeRows(allRows) {
     else if (action === 'SELL' || action === 'SL') type = 'SELL';
     if (!type) return skip(`Not a trade (${get('activityType') || action || 'unknown'}). Enter ROC or reinvested distributions manually.`);
     if (!ticker) return skip('No symbol');
-    if (currency !== 'CAD') return skip(`${currency} trades are not supported yet`);
+    if (currency !== 'CAD' && currency !== 'USD') return skip(`${currency} trades are not supported yet`);
     if (!Number.isFinite(qtyRaw) || qtyRaw === 0) return skip('Quantity is zero or unreadable');
 
     const qty = Math.round(Math.abs(qtyRaw) * QTY);
@@ -125,6 +125,7 @@ export function parseQuestradeRows(allRows) {
     if (!grossCents && !(type === 'BUY' && price === 0)) return skip('No amount or price');
     const commissionCents = Number.isFinite(commission) ? Math.round(Math.abs(commission) * 100) : 0;
     const t = { ...base, status: 'new', type, qty, grossCents, commissionCents, source: 'import' };
+    if (currency === 'USD' && !t.exchange) t.exchange = 'US';
     t.importHash = importHash(t);
     out.push(t);
   });
