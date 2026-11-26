@@ -1,6 +1,6 @@
 // Questrade activity export parser.
-// Questrade's Activities export (Reports > Activities > Export) is an Excel file; open it and
-// save as CSV. Expected columns (matched case-insensitively, order does not matter):
+// Questrade's account activity export is an Excel (.xlsx) file; parseQuestradeRows takes its rows
+// (from readXlsx) and parseQuestrade takes the same data saved as CSV. Expected columns (matched case-insensitively, order does not matter):
 //   Transaction Date, Settlement Date, Action, Symbol, Description, Quantity, Price,
 //   Gross Amount, Commission, Net Amount, Currency, Account #, Activity Type, Account Type
 //
@@ -31,8 +31,12 @@ const COLS = {
 const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
 
 export function parseDate(s) {
-  if (!s) return null;
-  s = s.trim();
+  if (s == null || s === '') return null;
+  s = String(s).trim();
+  if (/^\d{5}(\.\d+)?$/.test(s)) { // Excel serial date (days since 1899-12-30)
+    const d = new Date(Date.UTC(1899, 11, 30) + Math.floor(Number(s)) * 86400000);
+    return d.toISOString().slice(0, 10);
+  }
   let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
   m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); // M/D/YYYY (Excel en-US)
@@ -71,9 +75,15 @@ export function importHash(t) {
 }
 
 export function parseQuestrade(text) {
-  const rows = parseCSV(text);
-  if (!rows.length) return { error: 'The file is empty.', rows: [] };
-  const header = rows[0].map((h) => h.trim().toLowerCase());
+  return parseQuestradeRows(parseCSV(text));
+}
+
+export function parseQuestradeRows(allRows) {
+  if (!allRows.length) return { error: 'The file is empty.', rows: [] };
+  // Skip any title rows above the column headers
+  const h = allRows.findIndex((r) => r.some((c) => String(c).trim().toLowerCase() === 'symbol') && r.some((c) => String(c).trim().toLowerCase() === 'action'));
+  const rows = h > 0 ? allRows.slice(h) : allRows;
+  const header = rows[0].map((x) => String(x).trim().toLowerCase());
   const idx = {};
   for (const [k, names] of Object.entries(COLS)) idx[k] = header.findIndex((h) => names.includes(h));
   const missing = ['tradeDate', 'action', 'symbol', 'quantity'].filter((k) => idx[k] < 0);
@@ -81,7 +91,7 @@ export function parseQuestrade(text) {
 
   const out = [];
   rows.slice(1).forEach((r, i) => {
-    const get = (k) => (idx[k] >= 0 ? (r[idx[k]] ?? '').trim() : '');
+    const get = (k) => (idx[k] >= 0 ? String(r[idx[k]] ?? '').trim() : '');
     const line = i + 2;
     const action = get('action').toUpperCase();
     const activity = get('activityType').toLowerCase();

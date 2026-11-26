@@ -1,7 +1,7 @@
 // Offline support: serve the app shell from cache, refresh it in the background.
-const VERSION = 'acb-v1';
+const VERSION = 'acb-v2';
 const SHELL = ['/', '/index.html', '/styles.css', '/app.js', '/manifest.webmanifest', '/icon.svg',
-  '/lib/engine.js', '/lib/dates.js', '/lib/db.js', '/lib/csv.js', '/lib/questrade.js', '/lib/backup.js'];
+  '/lib/engine.js', '/lib/dates.js', '/lib/db.js', '/lib/csv.js', '/lib/questrade.js', '/lib/backup.js', '/lib/xlsx.js'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(VERSION).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

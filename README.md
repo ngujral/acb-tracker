@@ -9,7 +9,7 @@ all data stays in the browser (IndexedDB). No backend, no accounts.
 - Buys, sells, reinvested distributions, return of capital (incl. ACB below zero), splits, opening balances
 - Superficial-loss rule, including re-buys in TFSA/RRSP (loss permanently denied)
 - Sale check before you sell: expected gain/loss, superficial-loss warning, safe re-buy date
-- Questrade activity CSV import with preview and duplicate detection
+- Questrade activity import (.xlsx export directly, or .csv) with preview and duplicate detection
 - Yearly report laid out like Schedule 3, CSV export, print to PDF
 - Encrypted backup/restore (PBKDF2 + AES-GCM, Web Crypto)
 
@@ -21,7 +21,8 @@ Not yet: USD trades, ETF tax-breakdown import, TD/RBC import, spouse view, optio
 public/            static site served by the Worker
   lib/engine.js    pure ACB engine (no DOM, no storage)
   lib/dates.js     settlement dates (T+1 from 2024-05-27, TSX holidays)
-  lib/questrade.js Questrade CSV parser
+  lib/questrade.js Questrade activity parser
+  lib/xlsx.js      dependency-free .xlsx reader (DecompressionStream)
   lib/db.js        IndexedDB
   lib/backup.js    encrypted backup
   app.js           UI (hash routes)

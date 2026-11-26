@@ -54,3 +54,15 @@ test('date formats', () => {
 test('csv quoting', () => {
   assert.deepEqual(parseCSV('a,"b,c","d ""q"""\n'), [['a', 'b,c', 'd "q"']]);
 });
+
+test('reads the Questrade .xlsx export directly', async () => {
+  const { readXlsx } = await import('../public/lib/xlsx.js');
+  const { parseQuestradeRows } = await import('../public/lib/questrade.js');
+  const buf = readFileSync(new URL('./fixtures/questrade-sample.xlsx', import.meta.url));
+  const sheet = await readXlsx(new Uint8Array(buf));
+  const fromXlsx = parseQuestradeRows(sheet).rows;
+  const fromCsv = parseQuestrade(text).rows;
+  assert.equal(fromXlsx.length, 8);
+  const pick = (r) => [r.status, r.type, r.tradeDate, r.settleDate, r.ticker, r.qty, r.grossCents, r.commissionCents, r.accountType, r.importHash];
+  assert.deepEqual(fromXlsx.map(pick), fromCsv.map(pick));
+});

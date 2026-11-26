@@ -1,7 +1,8 @@
 import { computeLedger, yearReport, checkSale, groupKeyOf, fmtMoney, fmtQty, QTY, REGISTERED } from './lib/engine.js';
 import { defaultSettlementDate, today, yearOf } from './lib/dates.js';
 import { loadAll, put, putMany, del, setSetting, replaceAll, uid } from './lib/db.js';
-import { parseQuestrade, markDuplicates } from './lib/questrade.js';
+import { parseQuestrade, parseQuestradeRows, markDuplicates } from './lib/questrade.js';
+import { readXlsx } from './lib/xlsx.js';
 import { toCSV } from './lib/csv.js';
 import { encryptBackup, decryptBackup } from './lib/backup.js';
 
@@ -339,19 +340,27 @@ function viewImport() {
       <h1>Import from Questrade</h1>
       <div class="card stack">
         <ol class="small">
-          <li>In Questrade, open <strong>Reports, then Account activity</strong>, choose the date range, and export to Excel.</li>
-          <li>Open the file and save it as <strong>CSV</strong>.</li>
-          <li>Choose the CSV here. You'll see a preview before anything is saved.</li>
+          <li>In Questrade, open <strong>Reports, then Account activity</strong>, choose the accounts and date range, and export to Excel.</li>
+          <li>Choose that file here (.xlsx, or .csv if you saved it that way). You'll see a preview before anything is saved.</li>
         </ol>
-        <label for="qf">Questrade activity CSV</label>
-        <input type="file" id="qf" accept=".csv,text/csv">
+        <label for="qf">Questrade activity export</label>
+        <input type="file" id="qf" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv">
         <div id="ierr" role="alert"></div>
         <p class="small muted">The file is read in your browser and never uploaded. Buys, sells and DRIP purchases in CAD are imported. Return of capital and reinvested (phantom) distributions aren't in this export: add them by hand from your T3 slips.</p>
       </div>`;
     document.getElementById('qf').onchange = async (e) => {
       const file = e.target.files[0];
       if (!file) return;
-      const res = parseQuestrade(await file.text());
+      const showErr = (m) => { document.getElementById('ierr').innerHTML = `<div class="alert bad">${esc(m)}</div>`; };
+      const ext = file.name.toLowerCase().split('.').pop();
+      let res;
+      try {
+        if (ext === 'xlsx') res = parseQuestradeRows(await readXlsx(await file.arrayBuffer()));
+        else if (ext === 'csv') res = parseQuestrade(await file.text());
+        else if (ext === 'pdf') return showErr('PDF statements can\'t be imported. Use the Excel export from Reports, then Account activity.');
+        else if (ext === 'xls') return showErr('This is the older .xls format. Open it in Excel and save as .xlsx or .csv, then try again.');
+        else return showErr('Choose an .xlsx or .csv file.');
+      } catch (err) { return showErr(err.message || 'Could not read this file.'); }
       if (res.error) { document.getElementById('ierr').innerHTML = `<div class="alert bad">${esc(res.error)}</div>`; return; }
       markDuplicates(res.rows, state.data.transactions.map((t) => t.importHash).filter(Boolean));
       state.importRows = res.rows;
