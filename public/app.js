@@ -470,6 +470,15 @@ function viewImport() {
     <div class="row"><button id="doimport" ${nNew ? '' : 'disabled'}>Import ${nNew} transaction${nNew === 1 ? '' : 's'}</button><button class="secondary" id="cancelimp">Choose another file</button></div>`;
   document.getElementById('cancelimp').onclick = () => { state.importRows = null; viewImport(); };
   document.getElementById('doimport').onclick = async () => {
+    const btn = document.getElementById('doimport');
+    btn.disabled = true; btn.textContent = 'Importing…';
+    try { await doImport(); } catch (err) {
+      console.error(err);
+      btn.disabled = false; btn.textContent = 'Try again';
+      document.getElementById('ierr').innerHTML = `<div class="alert bad"><strong>The import didn't save.</strong> ${esc(err && err.message || String(err))}</div>`;
+    }
+  };
+  async function doImport() {
     const accounts = [...state.data.accounts];
     const newAccounts = [];
     for (const n of acctNums) {
@@ -501,7 +510,7 @@ function viewImport() {
     state.importRows = null;
     await refresh();
     location.hash = '#/';
-  };
+  }
 }
 
 // ---------- reports ----------
