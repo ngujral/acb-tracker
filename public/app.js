@@ -29,6 +29,7 @@ const BROKERS = [
 ];
 const brokerSelectHTML = (id, selected = 'questrade') => `<select id="${id}" aria-label="Broker">${BROKERS.map((b) =>
   `<option value="${b.id}" ${b.id === selected ? 'selected' : ''}>${esc(b.name)}${b.ready ? '' : ' (coming soon)'}</option>`).join('')}</select>`;
+const APP_VERSION = '2026-11-26.8';
 const BACKUP_EVERY_CHANGES = 20;
 const BACKUP_EVERY_DAYS = 30;
 
@@ -508,8 +509,10 @@ function viewImport() {
     await putMany('securities', newSecs);
     await putMany('transactions', txs);
     await setSetting('changeCount', (state.data.settings.changeCount || 0) + txs.length);
+    try { await navigator.storage?.persist?.(); } catch { /* optional */ }
     state.importRows = null;
     await refresh();
+    if (state.data.transactions.length === 0) throw new Error('The browser did not keep the saved data. Check that this site is allowed to save data (Chrome: Settings, Privacy and security, Site settings, On-device site data).');
     location.hash = '#/';
   }
 }
@@ -619,12 +622,26 @@ function viewSettings() {
         <button type="submit" class="secondary">Restore</button></form>
       <div id="bkmsg" role="status"></div>
     </div>
+    <h2>This device</h2>
+    <div class="card small" id="diag">
+      <div>Saved here: <strong>${state.data.transactions.length}</strong> transactions, ${state.data.accounts.length} accounts, ${state.data.securities.length} securities</div>
+      <div>App version: ${APP_VERSION}</div>
+      <div id="diag-storage">Storage: checking…</div>
+    </div>
     <h2>Privacy</h2>
     <div class="card"><p class="small">No account, no server database, no tracking cookies. Your data is stored in this browser (IndexedDB) and is never sent anywhere. We use privacy-friendly Cloudflare Web Analytics for page counts only.</p>
       <button class="danger" id="wipe">Erase all data on this device</button></div>
     ${disclaimer()}`;
 
   bindAccountForm(refresh);
+  (async () => {
+    const el = document.getElementById('diag-storage');
+    try {
+      const est = navigator.storage?.estimate ? await navigator.storage.estimate() : null;
+      const persisted = navigator.storage?.persisted ? await navigator.storage.persisted() : false;
+      el.textContent = `Storage: working${persisted ? ', protected from automatic clearing' : ''}${est ? ` (${Math.round(est.usage / 1024)} KB used)` : ''}`;
+    } catch (e) { el.textContent = `Storage: problem (${e.message})`; }
+  })();
   app.querySelectorAll('[data-delacct]').forEach((b) => { b.onclick = async () => { await del('accounts', b.dataset.delacct); await refresh(); }; });
   app.querySelectorAll('[data-ident]').forEach((sel) => {
     sel.onchange = async () => {
@@ -704,4 +721,6 @@ async function loadSample() {
 
 // ---------- boot ----------
 if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('/sw.js');
-refresh();
+refresh().catch((e) => {
+  app.innerHTML = `<div class="alert bad"><strong>This browser isn't letting the app save data.</strong> ${esc(e && e.message || e)}. In Chrome, check Settings, Privacy and security, Site settings, On-device site data, and that this isn't a private window.</div>`;
+});
