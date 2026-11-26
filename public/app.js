@@ -15,6 +15,19 @@ const TYPE_LABEL = {
   SPLIT: 'Split / consolidation', TRANSFER_IN: 'Opening balance / transfer in',
 };
 const ACCT_LABEL = { NONREG: 'Non-registered', TFSA: 'TFSA', RRSP: 'RRSP / RRIF / LIRA', FHSA: 'FHSA', RESP: 'RESP' };
+const BROKERS = [
+  { id: 'questrade', name: 'Questrade', ready: true },
+  { id: 'td', name: 'TD Direct Investing' },
+  { id: 'rbc', name: 'RBC Direct Investing' },
+  { id: 'wealthsimple', name: 'Wealthsimple' },
+  { id: 'cibc', name: "CIBC Investor's Edge" },
+  { id: 'bmo', name: 'BMO InvestorLine' },
+  { id: 'scotia', name: 'Scotia iTRADE' },
+  { id: 'nbdb', name: 'National Bank Direct Brokerage' },
+  { id: 'ibkr', name: 'Interactive Brokers' },
+];
+const brokerSelectHTML = (id, selected = 'questrade') => `<select id="${id}" aria-label="Broker">${BROKERS.map((b) =>
+  `<option value="${b.id}" ${b.id === selected ? 'selected' : ''}>${esc(b.name)}${b.ready ? '' : ' (coming soon)'}</option>`).join('')}</select>`;
 const BACKUP_EVERY_CHANGES = 20;
 const BACKUP_EVERY_DAYS = 30;
 
@@ -85,14 +98,16 @@ function viewHoldings() {
       <div class="empty card">
         <h1>Track your ACB across every broker</h1>
         <p class="muted">Adjusted cost base for your non-registered accounts, pooled the way CRA requires, with a capital gains summary for Schedule 3. Everything stays on this device.</p>
-        <div class="row">
-          <a class="btn" href="#/import">Import from Questrade</a>
-          <a class="btn secondary" href="#/add">Add a transaction</a>
-        </div>
+        <form id="startimp" class="start-import">
+          <label for="start-broker">Import from your broker</label>
+          <div class="row">${brokerSelectHTML('start-broker')}<button type="submit">Import</button></div>
+        </form>
+        <p class="small muted">or <a href="#/add">add transactions by hand</a></p>
         <p class="small muted" style="margin-top:1rem">Just looking? <button class="link" id="sample">Load sample data</button></p>
       </div>
       ${disclaimer()}`;
     document.getElementById('sample').onclick = loadSample;
+    document.getElementById('startimp').onsubmit = (e) => { e.preventDefault(); location.hash = `#/import?broker=${document.getElementById('start-broker').value}`; };
     return;
   }
   const list = Object.values(groups).sort((a, b) => groupName(a.key).localeCompare(groupName(b.key)));
@@ -336,9 +351,12 @@ function viewCheck() {
 function viewImport() {
   const rows = state.importRows;
   if (!rows) {
+    const broker = BROKERS.find((b) => b.id === new URLSearchParams(location.hash.split('?')[1] || '').get('broker')) || BROKERS[0];
     app.innerHTML = `
-      <h1>Import from Questrade</h1>
+      <h1>Import transactions</h1>
       <div class="card stack">
+        <div><label for="imp-broker">Broker</label>${brokerSelectHTML('imp-broker', broker.id)}</div>
+        ${broker.ready ? `
         <ol class="small">
           <li>In Questrade, open <strong>Reports, then Account activity</strong>, choose the accounts and date range, and export to Excel.</li>
           <li>Choose that file here (.xlsx, or .csv if you saved it that way). You'll see a preview before anything is saved.</li>
@@ -346,8 +364,12 @@ function viewImport() {
         <label for="qf">Questrade activity export</label>
         <input type="file" id="qf" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv">
         <div id="ierr" role="alert"></div>
-        <p class="small muted">The file is read in your browser and never uploaded. Buys, sells and DRIP purchases in CAD are imported. Return of capital and reinvested (phantom) distributions aren't in this export: add them by hand from your T3 slips.</p>
+        <p class="small muted">The file is read in your browser and never uploaded. Buys, sells and DRIP purchases in CAD are imported. Return of capital and reinvested (phantom) distributions aren't in this export: add them by hand from your T3 slips.</p>` : `
+        <div class="alert warn"><strong>${esc(broker.name)} import is coming soon.</strong> For now, add an opening balance for each holding and enter new trades by hand.</div>
+        <div><a class="btn" href="#/add">Add a transaction</a></div>`}
       </div>`;
+    document.getElementById('imp-broker').onchange = (e) => { location.hash = `#/import?broker=${e.target.value}`; };
+    if (!broker.ready) return;
     document.getElementById('qf').onchange = async (e) => {
       const file = e.target.files[0];
       if (!file) return;

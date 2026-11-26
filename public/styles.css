@@ -114,6 +114,9 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .empty { text-align: center; padding: 2rem 1rem; }
 .empty h1 { font-size: 1.5rem; }
 .empty .row { justify-content: center; margin-top: 1rem; }
+.start-import { max-width: 420px; margin: 1.25rem auto .5rem; text-align: left; }
+.start-import .row { margin-top: 0; flex-wrap: nowrap; }
+.start-import select { flex: 1; min-width: 0; }
 .disclaimer { font-size: .8rem; color: var(--muted); margin-top: 1.5rem; }
 .printonly { display: none; }
 
