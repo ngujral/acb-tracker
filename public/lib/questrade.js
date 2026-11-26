@@ -11,8 +11,10 @@ import { parseCSV } from './csv.js';
 import { QTY } from './engine.js';
 import { defaultSettlementDate } from './dates.js';
 
+// Header names are compared after lowercasing and dropping punctuation ("Trans. date" -> "trans date").
+const norm = (h) => String(h).toLowerCase().replace(/[^a-z0-9#]+/g, ' ').trim();
 const COLS = {
-  tradeDate: ['transaction date', 'trade date'],
+  tradeDate: ['transaction date', 'trans date', 'trade date', 'date'],
   settleDate: ['settlement date'],
   action: ['action'],
   symbol: ['symbol'],
@@ -23,14 +25,26 @@ const COLS = {
   commission: ['commission'],
   net: ['net amount'],
   currency: ['currency'],
-  accountNumber: ['account #', 'account number', 'account'],
+  accountNumber: ['account #', 'account', 'account number', 'account no'],
   activityType: ['activity type'],
   accountType: ['account type'],
 };
 
 const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
 
-export function parseDate(s) {
+// order: 'DMY' (Questrade Canada default) or 'MDY', for ambiguous n/n/yyyy dates
+export function detectDateOrder(values) {
+  let dmy = 0, mdy = 0;
+  for (const v of values) {
+    const m = String(v ?? '').trim().match(/^(\d{1,2})\/(\d{1,2})\/\d{4}/);
+    if (!m) continue;
+    if (Number(m[1]) > 12) dmy++;
+    else if (Number(m[2]) > 12) mdy++;
+  }
+  return mdy > dmy ? 'MDY' : 'DMY';
+}
+
+export function parseDate(s, order = 'DMY') {
   if (s == null || s === '') return null;
   s = String(s).trim();
   if (/^\d{5}(\.\d+)?$/.test(s)) { // Excel serial date (days since 1899-12-30)
@@ -39,8 +53,13 @@ export function parseDate(s) {
   }
   let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
-  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); // M/D/YYYY (Excel en-US)
-  if (m) return `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); // D/M/YYYY (Questrade) or M/D/YYYY
+  if (m) {
+    let [d, mo] = order === 'MDY' ? [m[2], m[1]] : [m[1], m[2]];
+    if (Number(mo) > 12 && Number(d) <= 12) [d, mo] = [mo, d];
+    if (Number(mo) < 1 || Number(mo) > 12 || Number(d) < 1 || Number(d) > 31) return null;
+    return `${m[3]}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
   m = s.match(/^(\d{1,2})[- ]([A-Za-z]{3})[a-z]*[- ,]+(\d{4})/); // 15-Jan-2026
   if (m && MONTHS[m[2].toLowerCase()]) return `${m[3]}-${String(MONTHS[m[2].toLowerCase()]).padStart(2, '0')}-${m[1].padStart(2, '0')}`;
   m = s.match(/^([A-Za-z]{3})[a-z]* (\d{1,2}),? (\d{4})/); // Jan 15, 2026
@@ -81,13 +100,18 @@ export function parseQuestrade(text) {
 export function parseQuestradeRows(allRows) {
   if (!allRows.length) return { error: 'The file is empty.', rows: [] };
   // Skip any title rows above the column headers
-  const h = allRows.findIndex((r) => r.some((c) => String(c).trim().toLowerCase() === 'symbol') && r.some((c) => String(c).trim().toLowerCase() === 'action'));
+  const h = allRows.findIndex((r) => r.some((c) => norm(c) === 'symbol') && r.some((c) => norm(c) === 'action'));
   const rows = h > 0 ? allRows.slice(h) : allRows;
-  const header = rows[0].map((x) => String(x).trim().toLowerCase());
+  const header = rows[0].map(norm);
   const idx = {};
-  for (const [k, names] of Object.entries(COLS)) idx[k] = header.findIndex((h) => names.includes(h));
+  for (const [k, names] of Object.entries(COLS)) {
+    idx[k] = -1;
+    for (const n of names) { const i = header.indexOf(norm(n)); if (i >= 0) { idx[k] = i; break; } }
+  }
   const missing = ['tradeDate', 'action', 'symbol', 'quantity'].filter((k) => idx[k] < 0);
-  if (missing.length) return { error: `This doesn't look like a Questrade activity export. Missing column(s): ${missing.join(', ')}.`, rows: [] };
+  const LABEL = { tradeDate: 'Transaction date', action: 'Action', symbol: 'Symbol', quantity: 'Quantity' };
+  if (missing.length) return { error: `This doesn't look like a Questrade activity export. Couldn't find the column(s): ${missing.map((k) => LABEL[k]).join(', ')}. Found: ${rows[0].filter(Boolean).join(', ')}.`, rows: [] };
+  const order = detectDateOrder(rows.slice(1).flatMap((r) => [r[idx.tradeDate], idx.settleDate >= 0 ? r[idx.settleDate] : '']));
 
   const out = [];
   rows.slice(1).forEach((r, i) => {
@@ -97,8 +121,8 @@ export function parseQuestradeRows(allRows) {
     const activity = get('activityType').toLowerCase();
     const currency = (get('currency') || 'CAD').toUpperCase();
     const { ticker, exchange } = tickerFrom(get('symbol'));
-    const tradeDate = parseDate(get('tradeDate'));
-    const settleDate = parseDate(get('settleDate')) || (tradeDate && defaultSettlementDate(tradeDate));
+    const tradeDate = parseDate(get('tradeDate'), order);
+    const settleDate = parseDate(get('settleDate'), order) || (tradeDate && defaultSettlementDate(tradeDate));
     const qtyRaw = num(get('quantity'));
     const price = num(get('price'));
     const gross = num(get('gross'));

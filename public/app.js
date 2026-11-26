@@ -128,7 +128,8 @@ function viewHoldings() {
       <div class="small muted num">${g.shares ? `${fmtMoney(Math.round(g.acbCents * QTY / g.shares))} / share` : 'closed'}</div></div>
     </a>`;
   app.innerHTML = `
-    ${errors.length ? `<div class="alert bad"><strong>${errors.length} problem${errors.length > 1 ? 's' : ''} to fix</strong>${errors.map((e) => `<div>${esc(e.message)} <a href="#/edit/${e.txId}">Edit</a></div>`).join('')}</div>` : ''}
+    ${errors.length ? `<div class="alert bad"><strong>${errors.length} problem${errors.length > 1 ? 's' : ''} to fix</strong>${errors.map((e) => `<div>${esc(e.message)} <a href="#/edit/${e.txId}">Edit</a></div>`).join('')}
+      ${errors.some((e) => /holds/.test(e.message)) ? '<p class="small" style="margin:.5rem 0 0">Usually the shares were bought before your export\'s date range. Add an <a href="#/add">opening balance</a> (Add, then "Opening balance / transfer in") dated before the sale, with the shares and ACB from your statement.</p>' : ''}</div>` : ''}
     <div class="split"><h1>Holdings</h1><span class="small muted">Non-registered, pooled</span></div>
     <p class="muted small">Total ACB ${fmtMoney(totalAcb)} across ${held.length} securit${held.length === 1 ? 'y' : 'ies'}</p>
     <div class="card tight">${held.map(row).join('') || '<p class="pad muted">No open positions.</p>'}</div>

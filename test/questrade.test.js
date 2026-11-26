@@ -44,11 +44,11 @@ test('duplicates within a file and against existing hashes', () => {
 });
 
 test('rejects a non-Questrade file', () => {
-  assert.match(parseQuestrade('a,b\n1,2\n').error, /Missing column/);
+  assert.match(parseQuestrade('a,b\n1,2\n').error, /Couldn't find the column/);
 });
 
 test('date formats', () => {
-  assert.equal(parseDate('1/5/2026 12:00:00 AM'), '2026-01-05');
+  assert.equal(parseDate('1/5/2026 12:00:00 AM', 'MDY'), '2026-01-05');
   assert.equal(parseDate('05-Jan-2026'), '2026-01-05');
   assert.equal(parseDate('Jan 5, 2026'), '2026-01-05');
 });
@@ -67,4 +67,31 @@ test('reads the Questrade .xlsx export directly', async () => {
   assert.equal(fromXlsx.length, 8);
   const pick = (r) => [r.status, r.type, r.tradeDate, r.settleDate, r.ticker, r.qty, r.grossCents, r.commissionCents, r.accountType, r.importHash];
   assert.deepEqual(fromXlsx.map(pick), fromCsv.map(pick));
+});
+
+test('Questrade web export: "Trans. date" header, DD/MM/YYYY dates, brackets for negatives', async () => {
+  const csv = readFileSync(new URL('./fixtures/questrade-web-columns.csv', import.meta.url), 'utf8');
+  const { rows, error } = parseQuestrade(csv);
+  assert.equal(error, undefined);
+  const [msft, bmnr, etha, meta] = rows;
+  assert.equal(msft.tradeDate, '2026-01-29');
+  assert.equal(msft.settleDate, '2026-01-30');
+  assert.equal(msft.qty, 1539400);
+  assert.equal(msft.grossCents, 65197);
+  assert.equal(msft.currency, 'USD');
+  assert.equal(bmnr.qty, Math.round(2579.3436 * QTY));
+  assert.equal(etha.type, 'SELL');
+  assert.equal(etha.qty, 3501 * QTY);
+  assert.equal(etha.grossCents, 5343437);
+  assert.equal(etha.settleDate, '2026-02-17');
+  // 05/03/2026 is ambiguous on its own; the file's other dates show it's day-first
+  assert.equal(meta.tradeDate, '2026-03-05');
+});
+
+test('date order detection', async () => {
+  const { detectDateOrder, parseDate } = await import('../public/lib/questrade.js');
+  assert.equal(detectDateOrder(['29/01/2026', '05/03/2026']), 'DMY');
+  assert.equal(detectDateOrder(['01/29/2026']), 'MDY');
+  assert.equal(parseDate('1/5/2026 12:00:00 AM', 'MDY'), '2026-01-05');
+  assert.equal(parseDate('13/02/2026'), '2026-02-13');
 });
