@@ -139,7 +139,11 @@ export function parseQuestradeRows(allRows) {
     if (activity.includes('reinvest') || action === 'REI' || action === 'DRIP') type = 'BUY';
     else if (action === 'BUY' || action === 'BY') type = 'BUY';
     else if (action === 'SELL' || action === 'SL') type = 'SELL';
-    if (!type) return skip(`Not a trade (${get('activityType') || action || 'unknown'}). Enter ROC or reinvested distributions manually.`);
+    if (!type) {
+      const what = get('activityType') || action || 'unknown';
+      const cashOnly = /dividend|interest|fee|rebate|deposit|withdraw|conversion|other|tax/i.test(what) && !(Number.isFinite(qtyRaw) && qtyRaw !== 0);
+      return skip(cashOnly ? `${what}: cash only, doesn't change ACB` : `Not a trade (${what}). If shares moved, add it by hand.`);
+    }
     if (!ticker) return skip('No symbol');
     if (currency !== 'CAD' && currency !== 'USD') return skip(`${currency} trades are not supported yet`);
     if (!Number.isFinite(qtyRaw) || qtyRaw === 0) return skip('Quantity is zero or unreadable');

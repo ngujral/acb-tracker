@@ -101,7 +101,7 @@ export function computeLedger({ accounts, securities, transactions }) {
         if (e.qty > held) {
           errors.push({ txId: e.id, message: `Sells ${fmtQty(e.qty)} shares but the account holds ${fmtQty(held)} on ${dateOf(e)}.` });
         }
-        perAcct.set(e.accountId, held - e.qty);
+        perAcct.set(e.accountId, Math.max(0, held - e.qty)); // don't cascade one gap into later errors
       }
       let total = 0;
       for (const q of perAcct.values()) total += q;
