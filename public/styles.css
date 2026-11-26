@@ -135,3 +135,8 @@ button:disabled { opacity: .5; cursor: not-allowed; }
   th, td { padding: .5rem .35rem; }
   th { font-size: .68rem; }
 }
+
+.import-bar { position: sticky; top: 56px; z-index: 4; box-shadow: 0 4px 12px rgba(0,0,0,.06); }
+.import-bar p { margin: 0 0 .6rem; }
+details.card summary { cursor: pointer; }
+details.card[open] summary { margin-bottom: .75rem; }

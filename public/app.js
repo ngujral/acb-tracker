@@ -29,7 +29,7 @@ const BROKERS = [
 ];
 const brokerSelectHTML = (id, selected = 'questrade') => `<select id="${id}" aria-label="Broker">${BROKERS.map((b) =>
   `<option value="${b.id}" ${b.id === selected ? 'selected' : ''}>${esc(b.name)}${b.ready ? '' : ' (coming soon)'}</option>`).join('')}</select>`;
-const APP_VERSION = '2026-11-26.8';
+const APP_VERSION = '2026-11-26.9';
 const BACKUP_EVERY_CHANGES = 20;
 const BACKUP_EVERY_DAYS = 30;
 
@@ -401,6 +401,16 @@ function viewCheck() {
 }
 
 // ---------- import ----------
+function rowsTable(title, list, open) {
+  if (!list.length) return '';
+  return `${title ? `<h2>${esc(title)}</h2>` : ''}<div class="card tight scroll"><table>
+      <thead><tr><th>Date</th><th>Type</th><th>Symbol</th><th class="num">Shares</th><th class="num">Amount</th><th class="num">Comm.</th><th class="num">CAD rate</th>${open ? '' : '<th>Why</th>'}</tr></thead>
+      <tbody>${list.map((r) => `<tr>
+        <td class="date">${r.tradeDate || ''}</td><td>${r.type ? TYPE_LABEL[r.type] : esc(r.action || r.activity)}</td><td>${esc(r.ticker)}</td>
+        <td class="num">${r.qty ? fmtQty(r.qty) : ''}</td><td class="num">${r.grossCents != null ? fmtCur(r.grossCents, r.currency) : ''}</td><td class="num">${r.commissionCents != null ? fmtCur(r.commissionCents, r.currency) : ''}</td><td class="num">${r.fxRate || ''}</td>
+        ${open ? '' : `<td class="small muted">${esc(r.reason || '')}</td>`}</tr>`).join('')}</tbody></table></div>`;
+}
+
 function viewImport() {
   const rows = state.importRows;
   if (!rows) {
@@ -455,21 +465,19 @@ function viewImport() {
   const existing = (num) => state.data.accounts.find((a) => a.externalId === num);
   app.innerHTML = `
     <h1>Import preview</h1>
-    <p class="muted">${counts.new} to import, ${counts.duplicate} already imported, ${counts.skipped} skipped.</p>
+    <div class="card import-bar">
+      <p><strong>${counts.new} trade${counts.new === 1 ? '' : 's'} ready to import.</strong> <span class="muted">${counts.duplicate ? `${counts.duplicate} already imported. ` : ''}${counts.skipped} other rows (dividends, interest, fees) don't affect ACB.</span></p>
+      <div class="row"><button id="doimport" ${nNew ? '' : 'disabled'}>Import ${nNew} transaction${nNew === 1 ? '' : 's'}</button><button class="secondary" id="cancelimp">Choose another file</button></div>
+    </div>
     ${acctNums.length ? `<div class="card stack"><strong>Accounts</strong>${acctNums.map((n) => {
       const ex = existing(n); const r = rows.find((x) => x.accountNumber === n);
       return `<div class="grid2"><div><label>Account ${esc(n)} name</label><input data-acctname="${esc(n)}" value="${esc(ex ? ex.name : `Questrade ${n.slice(-4)}`)}" ${ex ? 'disabled' : ''}></div>
         <div><label>Type</label><select data-accttype="${esc(n)}" ${ex ? 'disabled' : ''}>${Object.entries(ACCT_LABEL).map(([k, v]) => `<option value="${k}" ${(ex ? ex.type : r.accountType) === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div></div>`;
     }).join('')}</div>` : ''}
-    <div class="card tight scroll"><table>
-      <thead><tr><th>Status</th><th>Date</th><th>Account</th><th>Type</th><th>Symbol</th><th class="num">Shares</th><th class="num">Amount</th><th class="num">Comm.</th><th class="num">CAD rate</th></tr></thead>
-      <tbody>${rows.map((r) => `<tr>
-        <td><span class="chip ${r.status === 'new' ? 'new' : r.status === 'skipped' ? 'skipped' : ''}">${r.status}</span>${r.reason ? `<div class="small muted">${esc(r.reason)}</div>` : ''}</td>
-        <td>${r.tradeDate || ''}</td><td>${esc(r.accountNumber)}</td><td>${r.type ? TYPE_LABEL[r.type] : esc(r.action)}</td><td>${esc(r.ticker)}</td>
-        <td class="num">${r.qty ? fmtQty(r.qty) : ''}</td><td class="num">${r.grossCents != null ? fmtCur(r.grossCents, r.currency) : ''}</td><td class="num">${r.commissionCents != null ? fmtCur(r.commissionCents, r.currency) : ''}</td><td class="num">${r.fxRate || ''}</td></tr>`).join('')}</tbody>
-    </table></div>
     <div id="ierr" role="alert"></div>
-    <div class="row"><button id="doimport" ${nNew ? '' : 'disabled'}>Import ${nNew} transaction${nNew === 1 ? '' : 's'}</button><button class="secondary" id="cancelimp">Choose another file</button></div>`;
+    ${rowsTable('Transactions to import', rows.filter((r) => r.status === 'new'), true)}
+    ${rows.some((r) => r.status !== 'new') ? `<details class="card"><summary><strong>${counts.skipped + counts.duplicate} rows not imported</strong> <span class="muted small">(dividends, interest, fees, FX and rows already imported: none of these change ACB)</span></summary>
+      ${rowsTable('', rows.filter((r) => r.status !== 'new'), false)}</details>` : ''}`;
   document.getElementById('cancelimp').onclick = () => { state.importRows = null; viewImport(); };
   document.getElementById('doimport').onclick = async () => {
     const btn = document.getElementById('doimport');

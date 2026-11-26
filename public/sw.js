@@ -1,6 +1,6 @@
 // Offline support. Network first, so a new deploy is used right away;
 // the cache is only a fallback when offline.
-const VERSION = 'acb-v8';
+const VERSION = 'acb-v9';
 const SHELL = ['/', '/index.html', '/styles.css', '/app.js', '/manifest.webmanifest', '/icon.svg',
   '/lib/engine.js', '/lib/dates.js', '/lib/db.js', '/lib/csv.js', '/lib/questrade.js', '/lib/backup.js', '/lib/xlsx.js', '/lib/fx.js'];
 
