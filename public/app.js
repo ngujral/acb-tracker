@@ -29,7 +29,7 @@ const BROKERS = [
 ];
 const brokerSelectHTML = (id, selected = 'questrade') => `<select id="${id}" aria-label="Broker">${BROKERS.map((b) =>
   `<option value="${b.id}" ${b.id === selected ? 'selected' : ''}>${esc(b.name)}${b.ready ? '' : ' (coming soon)'}</option>`).join('')}</select>`;
-const APP_VERSION = '2026-11-27.11';
+const APP_VERSION = '2026-11-27.12';
 const BACKUP_EVERY_CHANGES = 20;
 const BACKUP_EVERY_DAYS = 30;
 
@@ -728,7 +728,7 @@ async function loadSample() {
 }
 
 // ---------- boot ----------
-if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('/sw.js');
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) navigator.serviceWorker.register('/sw.js');
 refresh().catch((e) => {
   app.innerHTML = `<div class="alert bad"><strong>This browser isn't letting the app save data.</strong> ${esc(e && e.message || e)}. In Chrome, check Settings, Privacy and security, Site settings, On-device site data, and that this isn't a private window.</div>`;
 });
