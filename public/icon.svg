@@ -1,6 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <rect width="512" height="512" rx="112" fill="#0f3d2e"/>
-  <path d="M112 360 L208 264 L272 312 L400 168" fill="none" stroke="#7fd1ad" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M112 408 H400" stroke="#ffffff" stroke-opacity=".35" stroke-width="20" stroke-linecap="round"/>
-  <circle cx="400" cy="168" r="30" fill="#ffffff"/>
+  <!-- ledger page -->
+  <rect x="120" y="96" width="272" height="320" rx="28" fill="#ffffff"/>
+  <rect x="120" y="96" width="44" height="320" rx="22" fill="#cfe9dc"/>
+  <rect x="142" y="96" width="22" height="320" fill="#cfe9dc"/>
+  <!-- ruled lines -->
+  <rect x="196" y="160" width="160" height="18" rx="9" fill="#d6dcd9"/>
+  <rect x="196" y="214" width="160" height="18" rx="9" fill="#d6dcd9"/>
+  <!-- rising line -->
+  <path d="M198 356 L254 304 L292 332 L352 268" fill="none" stroke="#1f6b4f" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="352" cy="268" r="20" fill="#1f6b4f"/>
 </svg>
