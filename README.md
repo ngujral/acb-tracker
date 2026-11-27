@@ -1,4 +1,6 @@
-# ACB Tracker
+# ACB Ledger
+
+Live at https://acbledger.ca
 
 Adjusted cost base (ACB) and capital gains tracker for Canadian investors. A local-only PWA:
 all data stays in the browser (IndexedDB). No backend, no accounts.

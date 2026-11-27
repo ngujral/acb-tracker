@@ -1,6 +1,6 @@
 {
-  "name": "ACB Tracker",
-  "short_name": "ACB Tracker",
+  "name": "ACB Ledger",
+  "short_name": "ACB Ledger",
   "description": "Adjusted cost base and capital gains for Canadian investors. Data stays on your device.",
   "start_url": "/",
   "scope": "/",

@@ -29,7 +29,7 @@ const BROKERS = [
 ];
 const brokerSelectHTML = (id, selected = 'questrade') => `<select id="${id}" aria-label="Broker">${BROKERS.map((b) =>
   `<option value="${b.id}" ${b.id === selected ? 'selected' : ''}>${esc(b.name)}${b.ready ? '' : ' (coming soon)'}</option>`).join('')}</select>`;
-const APP_VERSION = '2026-11-26.9';
+const APP_VERSION = '2026-11-27.10';
 const BACKUP_EVERY_CHANGES = 20;
 const BACKUP_EVERY_DAYS = 30;
 
